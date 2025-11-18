@@ -1,0 +1,255 @@
+<html>
+
+<head>
+    <title>Looping 3D Points with Z-Depth and Alpha</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a1a2e; }
+        canvas { display: block; }
+    </style>
+</head>
+
+<body>
+    <canvas id="gl-canvas" class="w-full h-screen"></canvas>
+
+    <!-- 
+      Vertex Shader (GLSL 3.00 es)
+      Calculates the final position based on time and projection, 
+      and scales the point size based on Z-depth.
+    --><script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
+
+      // Attributes passed from the CPU (Position is X, Y, Z)
+      in vec3 a_position; 
+      in vec3 a_color;
+
+      // Uniforms passed from the CPU
+      uniform float u_time;
+      uniform mat4 u_projection;
+
+      // Output data to fragment shader
+      out vec3 v_color;
+
+      // Constants
+      const float DROP_SPEED = 0.8; // Units per second
+      const float SIZE_FACTOR = 20.0; // Base size multiplier
+      const float LOOP_HEIGHT = 20.0; // Total vertical distance before wrapping (e.g., -5.0 to 15.0)
+
+      void main() {
+        // 1. Calculate the total displacement downwards and loop it
+        float displacement = u_time * DROP_SPEED;
+        //float looped_displacement = mod(displacement, LOOP_HEIGHT);
+
+        // 2. Calculate the new Y position.
+        float new_y = a_position.y - displacement;
+
+        // 3. Determine the world position. Z remains fixed for stable sizing.
+        vec4 world_position = vec4(a_position.x, new_y, a_position.z, 1.0);
+        
+        // 4. Project to screen space. gl_Position.z is critical for Depth Testing.
+        gl_Position = u_projection * world_position;
+        
+        // 5. Set Point Size based on Z-Depth
+        // Closer Z (less negative) means a larger point size.
+        float distance_z = abs(a_position.z);
+        gl_PointSize = SIZE_FACTOR / distance_z;
+
+        // Pass color to fragment shader
+        v_color = a_color;
+      }
+    </script>
+
+    <!-- 
+      Fragment Shader (GLSL 3.00 es)
+      Sets the final color for the point.
+    --><script id="fragment-shader" type="x-shader/x-fragment">#version 300 es
+      precision highp float;
+
+      // Input from vertex shader (interpolated)
+      in vec3 v_color;
+
+      // Final output color
+      out vec4 FragColor;
+
+      void main() {
+        // Render the point as a smooth circle using distance from the center
+        float dist = distance(gl_PointCoord, vec2(0.5));
+        float alpha = 1.0;
+        
+        // Smooth step to create soft edges (anti-aliased look)
+        alpha = 1.0 - smoothstep(0.46, 0.5, dist); 
+        
+        // FIX: Discard fragments with very low alpha (transparent parts)
+        // This prevents transparent parts of the point's square from writing to the depth buffer.
+        if (alpha < 0.01) { // Use a small threshold to avoid precision issues
+            discard;
+        }
+
+        // Output the final color, including alpha for the soft edges
+        FragColor = vec4(v_color, alpha);
+      }
+    </script>
+
+    <script type="text/javascript">
+        window.onload = function() {
+            const canvas = document.getElementById("gl-canvas");
+            const gl = canvas.getContext("webgl2");
+            if (!gl) {
+                console.error("WebGL 2 not supported! Requires OpenGL ES 3.0 features.");
+                return;
+            }
+
+            // --- Setup Canvas and Viewport ---
+            function setupViewport() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+            }
+            setupViewport();
+            window.addEventListener('resize', setupViewport);
+
+            // --- Enable Depth Testing ---
+            gl.enable(gl.DEPTH_TEST);
+            
+            // --- Enable Blending (for soft point edges/circles) ---
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            
+            // --- Compile Shaders and Link Program ---
+            const vsSource = document.getElementById("vertex-shader").text;
+            const fsSource = document.getElementById("fragment-shader").text;
+            const program = createProgram(gl, vsSource, fsSource);
+            gl.useProgram(program);
+
+            // --- Get Shader Locations ---
+            const positionAttribLocation = gl.getAttribLocation(program, "a_position");
+            const colorAttribLocation = gl.getAttribLocation(program, "a_color");
+            const projMatrixUniformLocation = gl.getUniformLocation(program, "u_projection");
+            const timeUniformLocation = gl.getUniformLocation(program, "u_time");
+
+            // --- Data Generation (500 Particles) ---
+            const NUM_PARTICLES = 500;
+            const particleData = new Float32Array(NUM_PARTICLES * 6); // 3 (Pos) + 3 (Color)
+
+            for (let i = 0; i < NUM_PARTICLES; i++) {
+                const offset = i * 6;
+                
+                // Position (X, Y, Z)
+                particleData[offset + 0] = (Math.random() * 20 - 10); // X: -10 to 10
+                particleData[offset + 1] = (Math.random() * 10 + 5);  // Y: 5 to 15 (Initial height)
+                // Z: -2.0 (Closest/Largest) to -10.0 (Farthest/Smallest)
+                particleData[offset + 2] = -(Math.random() * 8 + 2); 
+                
+                // Color (R, G, B)
+                particleData[offset + 3] = Math.random(); 
+                particleData[offset + 4] = Math.random(); 
+                particleData[offset + 5] = Math.random(); 
+            }
+
+            // --- Create VAO and VBO ---
+            const vao = gl.createVertexArray();
+            gl.bindVertexArray(vao);
+
+            const vbo = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+            gl.bufferData(gl.ARRAY_BUFFER, particleData, gl.STATIC_DRAW);
+
+            const stride = 6 * Float32Array.BYTES_PER_ELEMENT;
+
+            // Position attribute
+            gl.vertexAttribPointer(positionAttribLocation, 3, gl.FLOAT, false, stride, 0);
+            gl.enableVertexAttribArray(positionAttribLocation);
+
+            // Color attribute
+            const colorOffset = 3 * Float32Array.BYTES_PER_ELEMENT;
+            gl.vertexAttribPointer(colorAttribLocation, 3, gl.FLOAT, false, stride, colorOffset);
+            gl.enableVertexAttribArray(colorAttribLocation);
+
+            gl.bindVertexArray(null);
+
+            // --- Create Projection Matrix ---
+            const projectionMatrix = mat4.create();
+
+            function updateProjection() {
+                 mat4.perspective(projectionMatrix,
+                    45 * Math.PI / 180, // Field of view
+                    gl.canvas.clientWidth / gl.canvas.clientHeight, // Aspect ratio
+                    0.1,  // Near clip
+                    100.0 // Far clip
+                );
+                gl.uniformMatrix4fv(projMatrixUniformLocation, false, projectionMatrix);
+            }
+            
+            updateProjection();
+            window.addEventListener('resize', updateProjection);
+
+            // --- Render Loop ---
+            let startTime = performance.now();
+
+            function animate(now) {
+                const currentTime = (now - startTime) / 1000.0; 
+                
+                // --- Clear Screen ---
+                gl.clearColor(0.1, 0.1, 0.2, 1.0); // Dark blue background
+                // Clear both the Color Buffer and the Depth Buffer
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); 
+
+                // --- Upload Uniforms ---
+                gl.uniform1f(timeUniformLocation, currentTime);
+
+                // --- Draw the Points ---
+                gl.bindVertexArray(vao); 
+                gl.drawArrays(gl.POINTS, 0, NUM_PARTICLES);
+
+                requestAnimationFrame(animate);
+            }
+
+            animate(0); 
+        };
+
+        // --- Helper Functions and Matrix Library (unchanged) ---
+        function compileShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error("Error compiling shader:", gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+
+        function createProgram(gl, vsSource, fsSource) {
+            const vs = compileShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fs = compileShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            if (!vs || !fs) return null;
+            const program = gl.createProgram();
+            gl.attachShader(program, vs);
+            gl.attachShader(program, fs);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error("Error linking program:", gl.getProgramInfoLog(program));
+                gl.deleteProgram(program);
+                return null;
+            }
+            return program;
+        }
+        
+        const mat4 = {
+            create() { return new Float32Array(16); },
+            perspective(out, fovy, aspect, near, far) {
+                const f = 1.0 / Math.tan(fovy / 2);
+                out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
+                out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
+                out[8] = 0; out[9] = 0; out[11] = -1; out[15] = 0;
+                const nf = 1 / (near - far);
+                out[10] = (far + near) * nf;
+                out[14] = 2 * far * near * nf;
+                return out;
+            }
+        };
+
+    </script>
+</body>
+
+</html>

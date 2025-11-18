@@ -1,0 +1,455 @@
+<html>
+
+<head>
+    <title>Multi-Explosion Particle System (WebGL 2.0)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; }
+        canvas { display: block; }
+    </style>
+</head>
+
+<body>
+    <canvas id="gl-canvas" class="w-full h-screen"></canvas>
+
+    <!-- 
+      Vertex Shader (GLSL 3.00 es)
+      Calculates particle position based on a unique origin,
+      direction, and start time.
+    -->
+    <script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
+
+      // Per-particle attributes (from VBO)
+      in vec3 a_origin;    // The 3D origin of this particle's explosion
+      in vec3 a_direction; // The unique, random direction for this particle
+      in vec3 a_color;     // The unique, random color for this particle
+      in float a_startTime; // The global time this particle's explosion starts
+
+      // Global uniforms (from CPU)
+      uniform float u_time;
+      uniform mat4 u_projViewMatrix; // Combined Projection + View matrix
+
+      // Outputs to the Fragment Shader
+      out vec3 v_color;
+      out float v_alpha;
+
+      // Constants for the simulation
+      const float SPEED = 1.1;
+      const float MAX_LIFETIME = 5.0;     // Particle "explodes" and fades over 3 seconds
+      const float TOTAL_LIFETIME = 7.0;   // 3 sec life + 2 sec wait = 5 sec total loop
+      const float GRAVITY_ACCEL = 0.8;  // Acceleration due to gravity
+      const float GRAVITY_DELAY = 1.5;
+      const float CAMERA_Z = 5.0;       // Must match the "lookAt" z-position in the JS
+
+      // Pseudo-random hash function (converts a vec3 seed to a vec3 result [0,1])
+      // This is used to generate new origins and colors for each loop.
+      vec3 hash3(vec3 v) {
+        return fract(sin(vec3(
+            dot(v, vec3(127.1, 311.7, 74.7)),
+            dot(v, vec3(269.5, 183.3, 246.1)),
+            dot(v, vec3(113.5, 271.9, 124.6))
+            )) * 43758.5453123);
+      }
+
+      void main() {
+        // 1. Calculate the total time elapsed for this particle
+        float time_since_start = u_time - a_startTime;
+        
+        // 2. Calculate which loop iteration we are on
+        float loop_count = floor(time_since_start / TOTAL_LIFETIME);
+
+        // 3. Calculate the particle's "local" age within the current loop
+        float localTime = mod(time_since_start, TOTAL_LIFETIME);
+        
+        // 4. Check if particle is "dead" (in its wait period)
+        if (localTime > MAX_LIFETIME) {
+            gl_Position = vec4(0.0, 0.0, 0.0, -1.0); // Hide it off-screen
+            return;
+        }
+        
+        // We use the loop_count as a "seed" modifier.
+        // All 50 particles in this group will generate the *same* new origin and color.
+
+        // 5. Create a new seed from the original origin + loop_count
+        vec3 loop_seed_origin = a_origin + loop_count;
+        vec3 hash_origin = hash3(loop_seed_origin);
+        
+        // Map the [0,1] hash to our world space
+        vec3 new_origin = vec3(
+            (hash_origin.x * 6.0) - 3.0,  // X: -3 to 3
+            (hash_origin.y * 4.0) - 2.0,  // Y: -2 to 2
+            (hash_origin.z * -3.0) - 2.0 // Z: -2 to -5
+        );
+        
+        // 6. Create a new seed from the original color + loop_count
+        vec3 loop_seed_color = a_color + loop_count;
+        vec3 new_color = hash3(loop_seed_color); // New color is [0,1]
+
+        // 7. Calculate radial distance (linear)
+        float explosion_distance = localTime * SPEED;
+        
+        // 8. Calculate 3D spherical explosion position
+        vec3 explosion_pos = a_direction * explosion_distance;
+        
+        // 9. Calculate downward "gravity" offset (accelerating)
+        // float gravity_offset = 0.5 * GRAVITY_ACCEL * (localTime * localTime); // original
+        
+        float gravity_offset = 0.0;
+        // Use the formula for distance under constant acceleration: d = 0.5 * a * t^2
+        // This makes the particle fall faster and faster over its lifetime.
+        if (localTime > GRAVITY_DELAY) { // only start after the first second
+            float gravity_time = (localTime - GRAVITY_DELAY); // offset time
+            gravity_offset = 0.5 * GRAVITY_ACCEL * (gravity_time * gravity_time);
+        }
+
+        // 10. Combine origin, explosion, and gravity
+        //     Use generated new_origin instead of a_origin
+        vec3 position = new_origin + explosion_pos - vec3(0.0, gravity_offset, 0.0);
+
+        // 11. Set the final projected position
+        gl_Position = u_projViewMatrix * vec4(position, 1.0);
+        
+        // 12. Calculate the alpha (transparency)
+        v_alpha = 1.0 - (localTime / MAX_LIFETIME);
+
+        // 13. Set the point size based on its Z-distance from the camera
+        float camera_dist = CAMERA_Z - position.z;
+        gl_PointSize = (50.0 * (localTime * 0.5)) / camera_dist;
+
+        // 14. Pass the color to the fragment shader
+        //     Use generated new_color instead of a_color
+        v_color = new_color;
+      }
+    </script>
+
+    <!-- 
+      Fragment Shader (GLSL 3.00 es)
+      Sets the final color, applying the calculated alpha
+      and making the point circular.
+    -->
+    <script id="fragment-shader" type="x-shader/x-fragment">#version 300 es
+      precision highp float;
+
+      // Inputs from the Vertex Shader
+      in vec3 v_color;
+      in float v_alpha;
+
+      // Final output color
+      out vec4 FragColor;
+
+      void main() {
+        // Use gl_PointCoord to make the square point a circle
+        float dist = distance(gl_PointCoord, vec2(0.5));
+        float circle_alpha = 1.0 - smoothstep(0.45, 0.5, dist); 
+        
+        // Combine the circle's alpha with the particle's lifetime alpha
+        float final_alpha = v_alpha * circle_alpha;
+
+        // Discard fragments that are fully transparent
+        if (final_alpha < 0.01) {
+            discard;
+        }
+
+        FragColor = vec4(v_color, final_alpha);
+      }
+    </script>
+
+    <script type="text/javascript">
+        window.onload = function() {
+            const canvas = document.getElementById("gl-canvas");
+            const gl = canvas.getContext("webgl2");
+            if (!gl) {
+                console.error("WebGL 2 not supported! Requires OpenGL ES 3.0 features.");
+                return;
+            }
+
+            // --- Constants and Configuration ---
+            const NUM_EXPLOSIONS = 5;
+            const PARTICLES_PER_EXPLOSION = 500;
+            const NUM_PARTICLES = NUM_EXPLOSIONS * PARTICLES_PER_EXPLOSION; // 500 total
+            // VBO layout: origin(3), direction(3), color(3), startTime(1)
+            const ATTRIB_SIZE = 10; // 10 floats per particle
+
+            // --- Setup Canvas and Viewport ---
+            function setupViewport() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+            }
+            setupViewport();
+            window.addEventListener('resize', setupViewport);
+
+            // --- Global GL Settings ---
+            // CRITICAL: Enable Blending for transparency
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            
+            // CRITICAL: Disable Depth Test to allow blending
+            // Otherwise, transparent pixels will "block" pixels behind them.
+            gl.disable(gl.DEPTH_TEST);
+            
+            // --- Compile Shaders and Link Program ---
+            const vsSource = document.getElementById("vertex-shader").text;
+            const fsSource = document.getElementById("fragment-shader").text;
+            const program = createProgram(gl, vsSource, fsSource);
+            gl.useProgram(program);
+
+            // --- Get Shader Locations ---
+            const originAttribLocation = gl.getAttribLocation(program, "a_origin");
+            const directionAttribLocation = gl.getAttribLocation(program, "a_direction");
+            const colorAttribLocation = gl.getAttribLocation(program, "a_color");
+            const startTimeAttribLocation = gl.getAttribLocation(program, "a_startTime");
+            
+            const projViewMatrixUniformLocation = gl.getUniformLocation(program, "u_projViewMatrix");
+            const timeUniformLocation = gl.getUniformLocation(program, "u_time");
+
+            // --- Data Generation (500 Particles in 10 groups) ---
+            const particleData = new Float32Array(NUM_PARTICLES * ATTRIB_SIZE); 
+
+            for (let i = 0; i < NUM_EXPLOSIONS; i++) {
+                // 1. Create a random origin for this *entire* group
+                const originX = (Math.random() * 6.0) - 3.0; // X: -3 to 3
+                const originY = (Math.random() * 4.0) - 2.0; // Y: -2 to 2
+                const originZ = (Math.random() * -3.0) - 2.0;  // Z: -2 to -5 (away from camera)
+
+                // 2. Create a random start time for this *entire* group
+                const startTime = Math.random() * 5.0; // Stagger starts over 5 seconds
+
+                for (let j = 0; j < PARTICLES_PER_EXPLOSION; j++) {
+                    const offset = (i * PARTICLES_PER_EXPLOSION + j) * ATTRIB_SIZE;
+                    
+                    // 3. Generate a random 3D direction vector
+                    let x_dir = Math.random() * 2.0 - 1.0;
+                    let y_dir = Math.random() * 2.0 - 1.0;
+                    let z_dir = Math.random() * 2.0 - 1.0;
+                    const len = Math.sqrt(x_dir*x_dir + y_dir*y_dir + z_dir*z_dir);
+
+                    // 4. Generate a random color
+                    const r = 0.5 + Math.random() * 0.5;
+                    const g = 0.5 + Math.random() * 0.5;
+                    const b = 0.5 + Math.random() * 0.5;
+
+                    // 5. Store all data in the VBO
+                    // a_origin (same for all 50 particles in this group)
+                    particleData[offset + 0] = originX;
+                    particleData[offset + 1] = originY;
+                    particleData[offset + 2] = originZ;
+                    
+                    // a_direction (unique for this particle)
+                    particleData[offset + 3] = x_dir / len;
+                    particleData[offset + 4] = y_dir / len;
+                    particleData[offset + 5] = z_dir / len;
+                    
+                    // a_color (unique for this particle)
+                    particleData[offset + 6] = r;
+                    particleData[offset + 7] = g;
+                    particleData[offset + 8] = b;
+
+                    // a_startTime (same for all 50 particles in this group)
+                    particleData[offset + 9] = startTime;
+                }
+            }
+
+            // --- Create VAO and VBO ---
+            const vao = gl.createVertexArray();
+            gl.bindVertexArray(vao);
+
+            const vbo = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+            gl.bufferData(gl.ARRAY_BUFFER, particleData, gl.STATIC_DRAW);
+
+            const stride = ATTRIB_SIZE * Float32Array.BYTES_PER_ELEMENT;
+
+            // a_origin attribute
+            gl.vertexAttribPointer(originAttribLocation, 3, gl.FLOAT, false, stride, 0);
+            gl.enableVertexAttribArray(originAttribLocation);
+
+            // a_direction attribute
+            const directionOffset = 3 * Float32Array.BYTES_PER_ELEMENT;
+            gl.vertexAttribPointer(directionAttribLocation, 3, gl.FLOAT, false, stride, directionOffset);
+            gl.enableVertexAttribArray(directionAttribLocation);
+
+            // a_color attribute
+            const colorOffset = 6 * Float32Array.BYTES_PER_ELEMENT;
+            gl.vertexAttribPointer(colorAttribLocation, 3, gl.FLOAT, false, stride, colorOffset);
+            gl.enableVertexAttribArray(colorAttribLocation);
+
+            // a_startTime attribute
+            const startTimeOffset = 9 * Float32Array.BYTES_PER_ELEMENT;
+            gl.vertexAttribPointer(startTimeAttribLocation, 1, gl.FLOAT, false, stride, startTimeOffset);
+            gl.enableVertexAttribArray(startTimeAttribLocation);
+
+            gl.bindVertexArray(null);
+
+            // --- Create Projection and View Matrices ---
+            const projectionMatrix = mat4.create();
+            const viewMatrix = mat4.create();
+            const projViewMatrix = mat4.create(); // Combined matrix
+
+            function updateProjection() {
+                // Standard 3D perspective
+                 mat4.perspective(projectionMatrix,
+                    45 * Math.PI / 180, // Field of view
+                    gl.canvas.clientWidth / gl.canvas.clientHeight, // Aspect ratio
+                    0.1,  // Near clip
+                    100.0 // Far clip
+                );
+                
+                // Create a "camera" view, looking at the origin (0,0,0) from 5 units away
+                mat4.lookAt(viewMatrix,
+                    [0, 0, 5], // Camera position (Z=5)
+                    [0, 0, 0], // Target to look at (the origin)
+                    [0, 1, 0]  // Up vector
+                );
+                
+                // Combine them
+                mat4.multiply(projViewMatrix, projectionMatrix, viewMatrix);
+                
+                // Upload the combined matrix to the shader
+                gl.uniformMatrix4fv(projViewMatrixUniformLocation, false, projViewMatrix);
+            }
+            
+            updateProjection();
+            window.addEventListener('resize', updateProjection);
+
+            // --- Render Loop ---
+            let startTime = performance.now();
+
+            function animate(now) {
+                const currentTime = (now - startTime) / 1000.0; // time in seconds
+                
+                // --- Clear Screen ---
+                gl.clearColor(0.0, 0.0, 0.0, 1.0); // Black background
+                gl.clear(gl.COLOR_BUFFER_BIT); // No need to clear depth buffer
+
+                // --- Upload Uniforms ---
+                gl.uniform1f(timeUniformLocation, currentTime);
+
+                // --- Draw the Points ---
+                gl.bindVertexArray(vao); 
+                gl.drawArrays(gl.POINTS, 0, NUM_PARTICLES);
+
+                requestAnimationFrame(animate);
+            }
+
+            animate(0); 
+        };
+
+        // --- Helper Functions and Matrix Library (unchanged) ---
+        function compileShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error("Error compiling shader:", gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+
+        function createProgram(gl, vsSource, fsSource) {
+            const vs = compileShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fs = compileShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            if (!vs || !fs) return null;
+            const program = gl.createProgram();
+            gl.attachShader(program, vs);
+            gl.attachShader(program, fs);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error("Error linking program:", gl.getProgramInfoLog(program));
+                gl.deleteProgram(program);
+                return null;
+            }
+            return program;
+        }
+        
+        // --- Minimal Matrix Math Library (like glm) ---
+        const mat4 = {
+            create() { return new Float32Array(16); },
+            perspective(out, fovy, aspect, near, far) {
+                const f = 1.0 / Math.tan(fovy / 2);
+                out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
+                out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
+                out[8] = 0; out[9] = 0; out[11] = -1; out[15] = 0;
+                const nf = 1 / (near - far);
+                out[10] = (far + near) * nf;
+                out[14] = 2 * far * near * nf;
+                return out;
+            },
+            lookAt(out, eye, center, up) {
+                let x0, x1, x2, y0, y1, y2, z0, z1, z2, len;
+                let eyex = eye[0], eyey = eye[1], eyez = eye[2];
+                let upx = up[0], upy = up[1], upz = up[2];
+                let centerx = center[0], centery = center[1], centerz = center[2];
+
+                if (Math.abs(eyex - centerx) < 0.00001 &&
+                    Math.abs(eyey - centery) < 0.00001 &&
+                    Math.abs(eyez - centerz) < 0.00001) {
+                    out[0] = 1; out[1] = 0; out[2] = 0; out[3] = 0;
+                    out[4] = 0; out[5] = 1; out[6] = 0; out[7] = 0;
+                    out[8] = 0; out[9] = 0; out[10] = 1; out[11] = 0;
+                    out[12] = 0; out[13] = 0; out[14] = 0; out[15] = 1;
+                    return out;
+                }
+
+                z0 = eyex - centerx; z1 = eyey - centery; z2 = eyez - centerz;
+                len = 1 / Math.hypot(z0, z1, z2);
+                z0 *= len; z1 *= len; z2 *= len;
+
+                x0 = upy * z2 - upz * z1;
+                x1 = upz * z0 - upx * z2;
+                x2 = upx * z1 - upy * z0;
+                len = 1 / Math.hypot(x0, x1, x2);
+                if (!len) { x0 = 0; x1 = 0; x2 = 0; }
+                else { x0 *= len; x1 *= len; x2 *= len; }
+
+                y0 = z1 * x2 - z2 * x1;
+                y1 = z2 * x0 - z0 * x2;
+                y2 = z0 * x1 - z1 * x0;
+                len = 1 / Math.hypot(y0, y1, y2);
+                if (!len) { y0 = 0; y1 = 0; y2 = 0; }
+                else { y0 *= len; y1 *= len; y2 *= len; }
+
+                out[0] = x0; out[1] = y0; out[2] = z0; out[3] = 0;
+                out[4] = x1; out[5] = y1; out[6] = z1; out[7] = 0;
+                out[8] = x2; out[9] = y2; out[10] = z2; out[11] = 0;
+                out[12] = -(x0 * eyex + x1 * eyey + x2 * eyez);
+                out[13] = -(y0 * eyex + y1 * eyey + y2 * eyez);
+                out[14] = -(z0 * eyex + z1 * eyey + z2 * eyez);
+                out[15] = 1;
+                return out;
+            },
+            multiply(out, a, b) {
+                let a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
+                let a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+                let a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
+                let a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+                let b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+                out[0] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+                out[1] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+                out[2] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+                out[3] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+                b0 = b[4]; b1 = b[5]; b2 = b[6]; b3 = b[7];
+                out[4] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+                out[5] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+                out[6] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+                out[7] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+                b0 = b[8]; b1 = b[9]; b2 = b[10]; b3 = b[11];
+                out[8] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+                out[9] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+                out[10] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+                out[11] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+                b0 = b[12]; b1 = b[13]; b2 = b[14]; b3 = b[15];
+                out[12] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+                out[13] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+                out[14] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+                out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+                return out;
+            }
+        };
+
+    </script>
+</body>
+
+</html>
