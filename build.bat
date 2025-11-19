@@ -11,8 +11,10 @@ REM echo Installing dependencies with vcpkg
 REM vcpkg install glfw3 glm freetype
 
 echo Configuring and building with CMake
-cmake .. -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake
+REM cmake .. -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake
+cmake ..
 cmake --build .
+cmake --install .
 cd ..
 
 REM echo Building in %build_dir% using msys2_shell: %bash%
