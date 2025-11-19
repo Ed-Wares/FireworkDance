@@ -5,7 +5,7 @@ FireworkDance is a basic cross-platform OpenGL Application written in C++.  It g
 
 Here is a quick look at the application:
 
-![Demo](https://github.com/Ed-Wares/Cubey/blob/main/DemoCubey.gif?raw=true)
+![Demo](https://github.com/Ed-Wares/FireworkDance/blob/main/DemoFireworkDance.gif?raw=true)
 
 ## How It Works: 
 This is a multi-platform OpenGL C++ application using GLFW (Graphics Library Framework) for windowing and input, and GLAD for loading OpenGL function pointers. This setup is highly standard for desktop OpenGL development.
