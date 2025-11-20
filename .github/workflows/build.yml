@@ -10,8 +10,8 @@ on:
         description: 'The Git reference (e.g., branch or tag) to checkout'
         required: true
         type: string
-      commit_sha:
-        description: 'The commit SHA to be used for the package artifact name'
+      version_string:
+        description: 'Version string for the artifact name'
         required: true
         type: string
     outputs:

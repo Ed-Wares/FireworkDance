@@ -14,4 +14,5 @@ jobs:
     uses: ./.github/workflows/build.yml # Call the reusable workflow
     with:
       git_ref: ${{ github.ref }}
-      commit_sha: ${{ github.sha }} # Use the full commit hash as the identifier
+      # Use the short commit hash as the version for CI builds
+      version_string: "ci-${{ github.sha }}"
