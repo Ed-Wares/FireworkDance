@@ -1,27 +1,29 @@
-SET "CurrentDir=%~dp0"
-SET build_dir=%CurrentDir%build
+@echo off
+SET "current_dir=%~dp0"
+SET build_dir=%current_dir%build
 SET msys2bash=c:\msys64\msys2_shell.cmd -ucrt64 -c 
 
-cd /d "%CurrentDir%"
+cd /d "%current_dir%"
 
+echo removing old build
+rmdir /s /q "%build_dir%"
+
+echo creating build directory "$build_dir"
 mkdir %build_dir%
+mkdir "%current_dir%\distrib"
 cd %build_dir%
 
-REM echo Installing dependencies with vcpkg
-REM vcpkg install glfw3 glm freetype
+
+REM echo Install dependencies with cmd: vcpkg install glfw3 glm freetype
+echo dependencies can be installed in MinGW with: pacman -S mingw-w64-ucrt-x86_64-glfw mingw-w64-ucrt-x86_64-glm mingw-w64-ucrt-x86_64-freetype
 
 echo Configuring and building with CMake
-REM cmake .. -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake
-cmake ..
-cmake --build .
-cmake --install .
+cmake .. -G "MinGW Makefiles"
+REM cmake .. -G "Visual Studio 17 2022"
+cmake --build . --config Release
+
+echo copying binaries to the distrib folder...
+copy /Y *.exe "%current_dir%\distrib"
+copy /Y *.dll "%current_dir%\distrib"
+
 cd ..
-
-REM echo Building in %build_dir% using msys2_shell: %bash%
-REM %msys2bash% "cd ""%build_dir%"" ; cmake ""%CurrentDir%"" -G 'MinGW Makefiles'"
-REM pause
-REM %msys2bash% "cmake --build . ; sleep 3"
-
-
-
-REM rmdir /s /q build

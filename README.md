@@ -28,13 +28,6 @@ Build your own application binaries.
 
 Prerequesites required for building source
 - CMake: Download and install from [cmake.org](https://cmake.org/download/).  Add the installed path to the top of your Windows PATH environment variable.  For example: ```C:\Program Files\CMake\bin```
-- vcpkg: If you don't have it already clone from: 
-
-  ```git clone https://github.com/microsoft/vcpkg```
-
-  ```./vcpkg/bootstrap-vcpkg.bat```
-
-  ```./vcpkg/vcpkg install glfw3 glm freetype```
 - C++ Compiler: msys2 - download the latest installer from the [MSYS2](https://github.com/msys2/msys2-installer/releases/download/2024-12-08/msys2-x86_64-20241208.exe)
   - Run the installer and follow the steps of the installation wizard. Note that MSYS2 requires 64 bit Windows 8.1 or newer.
   - Run Msys2 terminal and from this terminal, install the MinGW-w64 toolchain by running the following command:
@@ -46,6 +39,17 @@ Prerequesites required for building source
   - To check that your MinGW-w64 tools are correctly installed and available, open a new Command Prompt and type:
 
     ```g++ --version```
+  - Install needed libraries glfw, glm, freetype:
+    ```pacman -S mingw-w64-ucrt-x86_64-glfw mingw-w64-ucrt-x86_64-glm mingw-w64-ucrt-x86_64-freetype```
+    
+- Or if building with Visual Studio 2022 tools use with vcpkg: If you don't have it already clone from: 
+
+  ```git clone https://github.com/microsoft/vcpkg```
+
+  ```./vcpkg/bootstrap-vcpkg.bat```
+
+  ```./vcpkg/vcpkg install glfw3 glm freetype```
+
 - Optionally, install Visual Studio Code IDE (with C++ extensions).  [VsCode](https://code.visualstudio.com/download)
 
 - Optionally, to update GLAD Loader library.
