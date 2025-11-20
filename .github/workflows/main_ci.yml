@@ -1,0 +1,17 @@
+name: Main CI Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches: 
+      - main
+
+jobs:
+  ci_build:
+    name: Build on Main Branch
+    uses: ./.github/workflows/build.yml # Call the reusable workflow
+    with:
+      git_ref: ${{ github.ref }}
+      commit_sha: ${{ github.sha }} # Use the full commit hash as the identifier
