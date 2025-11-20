@@ -5,38 +5,29 @@ on:
     types: [published]
 
 jobs:
-  release_build:
-    name: Build Release Package
-    uses: ./.github/workflows/build.yml # Call the reusable build workflow
+  # 1. Call the reusable builder
+  build_release_binary:
+    uses: ./.github/workflows/build.yml
     with:
-      # Build the package using the tag that triggered the release
-      git_ref: ${{ github.ref }} 
-      # Use the tag name as the package identifier
-      commit_sha: ${{ github.event.release.tag_name }} 
-    
-    # Map the output from the reusable build workflow
-    secrets: inherit
-    outputs:
-      package_name: ${{ jobs.release_build.outputs.artifact_name }}
+      git_ref: ${{ github.ref }} # This checks out the specific tag
+      version_string: ${{ github.event.release.tag_name }} # Use tag (e.g., 1.0.0)
 
-  deploy_release:
-    name: Upload Artifact to GitHub Release
-    needs: [release_build] # Ensure the build step completes first
+  # 2. Upload the result to the Release page
+  upload_to_release:
+    needs: build_release_binary
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: write # Required to upload files to releases
+
     steps:
-    - name: Download Build Artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: ${{ needs.release_build.outputs.package_name }}
-        path: release_assets/
-
-    - name: List Artifact Contents (Debug)
-      run: ls -R release_assets/
-
-    - name: Upload Release Asset
-      uses: softprops/action-gh-release@v1
-      with:
-        files: release_assets/${{ needs.release_build.outputs.package_name }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries # Must match the name used in build.yml
+          
+      - name: Upload Asset to Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          # Use the filename output from the build job
+          files: ${{ needs.build_release_binary.outputs.artifact_name }}

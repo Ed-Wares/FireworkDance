@@ -72,7 +72,7 @@ jobs:
       uses: actions/upload-artifact@v4
       id: upload-artifact
       with:
-        name: ${{ steps.set-output-name.outputs.package_name }}
+        name: binaries
         path: ./distrib/*.zip # Upload the generated ZIP file
         retention-days: 1
 
