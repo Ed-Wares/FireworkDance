@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release_build:
+    name: Build Release Package
+    uses: ./.github/workflows/build.yml # Call the reusable build workflow
+    with:
+      # Build the package using the tag that triggered the release
+      git_ref: ${{ github.ref }} 
+      # Use the tag name as the package identifier
+      commit_sha: ${{ github.event.release.tag_name }} 
+    
+    # Map the output from the reusable build workflow
+    secrets: inherit
+    outputs:
+      package_name: ${{ jobs.release_build.outputs.artifact_name }}
+
+  deploy_release:
+    name: Upload Artifact to GitHub Release
+    needs: [release_build] # Ensure the build step completes first
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download Build Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ needs.release_build.outputs.package_name }}
+        path: release_assets/
+
+    - name: List Artifact Contents (Debug)
+      run: ls -R release_assets/
+
+    - name: Upload Release Asset
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release_assets/${{ needs.release_build.outputs.package_name }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -32,7 +32,7 @@ Prerequesites required for building source
   - Run the installer and follow the steps of the installation wizard. Note that MSYS2 requires 64 bit Windows 8.1 or newer.
   - Run Msys2 terminal and from this terminal, install the MinGW-w64 toolchain by running the following command:
   
-    ```pacman -S --needed base-devel mingw-w64-ucrt-x86_64-toolchain```
+    ```pacman -S --needed base-devel mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-cmake zip```
   - Accept the default number of packages in the toolchain group by pressing Enter (default=all).
   - Enter Y when prompted whether to proceed with the installation.
   - Add the path of your MinGW-w64 bin folder (C:\msys64\ucrt64\bin) to the Windows PATH environment variable.
@@ -41,7 +41,7 @@ Prerequesites required for building source
     ```g++ --version```
   - Install needed libraries glfw, glm, freetype:
     ```pacman -S mingw-w64-ucrt-x86_64-glfw mingw-w64-ucrt-x86_64-glm mingw-w64-ucrt-x86_64-freetype```
-    
+
 - Or if building with Visual Studio 2022 tools use with vcpkg: If you don't have it already clone from: 
 
   ```git clone https://github.com/microsoft/vcpkg```

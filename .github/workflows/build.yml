@@ -63,7 +63,7 @@ jobs:
         # build.sh creates the ZIP in the distrib folder. We find the name and export it.
         # Example: FireworkDance.zip
         PACKAGE_FILE=$(find distrib -name "FireworkDance*.zip" -print -quit)
-        PACKAGE_NAME=$(basename $PACKAGE_FILE)
+        PACKAGE_NAME=$(basename ${PACKAGE_FILE%.*})
         
         echo "package_name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
         echo "Found package: $PACKAGE_NAME"
