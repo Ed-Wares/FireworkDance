@@ -147,12 +147,13 @@ out vec3 v_color;
 out float v_alpha;
 
 // Constants for the simulation
-const float SPEED = 1.1;
-const float MAX_LIFETIME = 5.0;     // Particle "explodes" and fades over 3 seconds
-const float TOTAL_LIFETIME = 7.0;   // 3 sec life + 2 sec wait = 5 sec total loop
-const float GRAVITY_ACCEL = 0.8;  // Acceleration due to gravity
-const float GRAVITY_DELAY = 1.5;
-const float CAMERA_Z = 5.0;       // Must match the "lookAt" z-position in the JS
+const float SPEED = 1.1;             // speed of firework explosion
+const float LAUNCH_LIFETIME = 1.0;   // launching the projectile up for 1 sec
+const float EXPLODE_LIFETIME = 6.0;  // Particle "explodes" and fades over 5 seconds
+const float TOTAL_LIFETIME = 15.0;   // 6 sec life 1 sec launch + 8 sec possible wait = 15 sec total loop
+const float GRAVITY_ACCEL = 0.8;     // Acceleration due to gravity
+const float GRAVITY_DELAY = 1.5;     // Delay explode gravity 
+const float CAMERA_Z = 5.0;          // Must match the "lookAt" z-position in the JS
 
 // Pseudo-random hash function (converts a vec3 seed to a vec3 result [0,1])
 // This is used to generate new origins and colors for each loop.
@@ -175,7 +176,7 @@ void main() {
     float localTime = mod(time_since_start, TOTAL_LIFETIME);
 
     // 4. Check if particle is "dead" (in its wait period)
-    if (localTime > MAX_LIFETIME) {
+    if (localTime > EXPLODE_LIFETIME) {
         gl_Position = vec4(0.0, 0.0, 0.0, -1.0); // Hide it off-screen
         return;
     }
@@ -197,6 +198,22 @@ void main() {
     // 6. Create a new seed from the original color + loop_count
     vec3 loop_seed_color = a_color + loop_count;
     vec3 new_color = hash3(loop_seed_color); // New color is [0,1]
+
+    if (localTime < LAUNCH_LIFETIME) {    // logic for launch particle during the launch time
+        vec3 launchOrigin = vec3(new_origin.x, -3.5, -3.0);
+        float distance_to_target = length(new_origin - launchOrigin);
+        float required_speed = distance_to_target / LAUNCH_LIFETIME;
+        vec3 launchDirection = normalize(new_origin - launchOrigin);
+        vec3 position = launchOrigin + (launchDirection * (localTime * required_speed));
+        new_color = vec3(1.0, 1.0, 1.0);
+        v_alpha = 1.0;
+        gl_Position = u_projViewMatrix * vec4(position, 1.0);
+        gl_PointSize = 2.0f;
+        v_color = new_color;
+        return;
+    } else { // offset localTime to restart after launch time
+        localTime -= LAUNCH_LIFETIME;
+    }
 
     // 7. Calculate radial distance (linear)
     float explosion_distance = localTime * SPEED;
@@ -223,7 +240,7 @@ void main() {
     gl_Position = u_projViewMatrix * vec4(position, 1.0);
 
     // 12. Calculate the alpha (transparency)
-    v_alpha = 1.0 - (localTime / MAX_LIFETIME);
+    v_alpha = 1.0 - (localTime / EXPLODE_LIFETIME);
 
     // 13. Set the point size based on its Z-distance from the camera
     float camera_dist = CAMERA_Z - position.z;
@@ -321,7 +338,7 @@ int main() {
         const float originX = (static_cast<float>(rand()) / RAND_MAX * 6.0f) - 3.0f;
         const float originY = (static_cast<float>(rand()) / RAND_MAX * 4.0f) - 2.0f;
         const float originZ = (static_cast<float>(rand()) / RAND_MAX * -3.0f) - 2.0f; // Z: -2 to -5
-        const float startTime = static_cast<float>(rand()) / RAND_MAX * 5.0f;
+        const float startTime = (static_cast<float>(rand()) / RAND_MAX * 8.0f) + 1.0f; // start time 1 to 10 with 1 second launch
 
         const float r_seed = static_cast<float>(rand()) / RAND_MAX;
         const float g_seed = static_cast<float>(rand()) / RAND_MAX;
@@ -396,7 +413,7 @@ int main() {
         processInput(window);
 
         // Calculate time
-        float currentTime = (float)glfwGetTime();
+        float currentTime = (float)glfwGetTime(); // gets applications total run time in seconds
 
         // Rendering commands
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);

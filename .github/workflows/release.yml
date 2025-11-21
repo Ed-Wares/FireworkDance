@@ -23,11 +23,10 @@ jobs:
       - name: Download Artifact
         uses: actions/download-artifact@v4
         with:
-          name: binaries # Must match the name used in build.yml
+          name: FireworkDance-${{ github.event.release.tag_name }} # Must match the name used in build.yml
           
       - name: Upload Asset to Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          # Use the filename output from the build job
-          files: ${{ needs.build_release_binary.outputs.artifact_name }}
+          files: "*" # Upload all files in the artifact
