@@ -73,6 +73,6 @@ jobs:
       id: upload-artifact
       with:
         name: FireworkDance-${{ inputs.version_string }}
-        path: ./distrib/FireworkDance/* # Upload the generated ZIP file
+        path: ./distrib/*.zip # Upload the generated ZIP file
         retention-days: 1
 
